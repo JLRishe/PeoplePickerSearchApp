@@ -3,6 +3,7 @@ using Microsoft.SharePoint.ApplicationPages.ClientPickerQuery;
 using Microsoft.SharePoint.Client;
 using Microsoft.SharePoint.Client.Utilities;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
 
 namespace PeoplePickerSearchApp
 {
@@ -37,7 +38,7 @@ namespace PeoplePickerSearchApp
                 return await confidentialClient.AcquireTokenForClient(scopes).ExecuteAsync();
 
             }
-            
+
             var publicClient = PublicClientApplicationBuilder
                     .Create(ClientId)
                     .WithAuthority(authority, false)
@@ -54,7 +55,7 @@ namespace PeoplePickerSearchApp
             return new AccessTokenClientContext(SharePointTenantUrl, token.AccessToken);
         }
 
-        private static async Task<string> SearchPeople(ClientContext context, string searchTerm, bool useSubstrate)
+        private static async Task<PeopleSearchResult[]?> SearchPeople(ClientContext context, string searchTerm, bool useSubstrate)
         {
             var query = new ClientPeoplePickerQueryParameters
             {
@@ -72,17 +73,43 @@ namespace PeoplePickerSearchApp
 
             await context.ExecuteQueryAsync();
 
-            return result.Value;
+            var resultJson = result.Value;
 
+            return JsonSerializer.Deserialize<PeopleSearchResult[]>(resultJson);
+        }
+
+        private static async Task QueryAndListPeople(ClientContext clientContext, bool isAppOnly, bool useSubstrate, string searchTerm)
+        {
+            var result = await SearchPeople(clientContext, searchTerm, useSubstrate);
+
+            Console.WriteLine($"App-only: {isAppOnly} | UseSubstrate: {useSubstrate} | Results: {(result is null ? "(null)" : result.Length.ToString())}");
+
+            if (result != null)
+            {
+                foreach (var item in result)
+                {
+                    Console.WriteLine($"- {item.DisplayText} ({item.Key})");
+                }
+            }
         }
 
         static async Task Main()
         {
+            var delegatedClient = await GetSharePointClient(false);
             var appOnlyClient = await GetSharePointClient(true);
 
-            var appOnlyResult = await SearchPeople(appOnlyClient, "Ailmel", false);
+            for (; ; )
+            {
+                Console.Write("Enter search term: ");
+                var searchTerm = Console.ReadLine();
 
-            Console.WriteLine(appOnlyResult);
+                await QueryAndListPeople(delegatedClient, false, false, searchTerm);
+                await QueryAndListPeople(delegatedClient, false, true, searchTerm);
+                await QueryAndListPeople(appOnlyClient, true, false, searchTerm);
+                await QueryAndListPeople(appOnlyClient, true, true, searchTerm);
+
+                Console.WriteLine();
+            }
         }
     }
 }

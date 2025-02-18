@@ -1,7 +1,10 @@
-﻿namespace PeoplePickerSearchApp
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace PeoplePickerSearchApp
 {
     public class OdataResponse
     {
-        public string value { get; set; }
+        [SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "API property name")]
+        public string? value { get; set; }
     }
 }

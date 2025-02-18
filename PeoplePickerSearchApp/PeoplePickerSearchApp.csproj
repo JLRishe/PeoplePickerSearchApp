@@ -9,8 +9,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Identity.Client" Version="4.68.0" />
-    <PackageReference Include="Microsoft.SharePoint.Client" Version="14.0.4762.1000" />
-    <PackageReference Include="Microsoft.SharePointOnline.CSOM" Version="16.1.25611.12000" />
   </ItemGroup>
 
 </Project>

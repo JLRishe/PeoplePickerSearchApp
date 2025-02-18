@@ -1,8 +1,7 @@
 ﻿using Microsoft.Identity.Client;
-using Microsoft.SharePoint.ApplicationPages.ClientPickerQuery;
-using Microsoft.SharePoint.Client;
-using Microsoft.SharePoint.Client.Utilities;
+using System.Net.Http.Headers;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 
 namespace PeoplePickerSearchApp
@@ -48,39 +47,53 @@ namespace PeoplePickerSearchApp
             return await publicClient.AcquireTokenInteractive(scopes).ExecuteAsync();
         }
 
-        private static async Task<ClientContext> GetSharePointClient(bool useAppOnly)
+        private static async Task<PeopleSearchResult[]?> SearchPeopleRest(string token, string searchTerm, bool useSubstrate)
         {
-            var token = await GetToken(useAppOnly);
-
-            return new AccessTokenClientContext(SharePointTenantUrl, token.AccessToken);
-        }
-
-        private static async Task<PeopleSearchResult[]?> SearchPeople(ClientContext context, string searchTerm, bool useSubstrate)
-        {
-            var query = new ClientPeoplePickerQueryParameters
+            var parameters = new PeoplePickerSearchUserPayload
             {
-                PrincipalType = PrincipalType.User,
-                PrincipalSource = PrincipalSource.All,
-                QueryString = searchTerm,
-
-                AllowMultipleEntities = false,
-                MaximumEntitySuggestions = 200,
-
-                UseSubstrateSearch = useSubstrate,
+                queryParams = new PeoplePickerSearchUserQueryParams
+                {
+                    PrincipalType = 1,
+                    PrincipalSource = 15,
+                    QueryString = searchTerm,
+                    AllowMultipleEntities = false,
+                    MaximumEntitySuggestions = 200,
+                    UseSubstrateSearch = useSubstrate,
+                },
             };
 
-            var result = ClientPeoplePickerWebServiceInterface.ClientPeoplePickerSearchUser(context, query);
+            var payload = JsonSerializer.Serialize(parameters);
 
-            await context.ExecuteQueryAsync();
+            var client = new HttpClient();
 
-            var resultJson = result.Value;
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            return JsonSerializer.Deserialize<PeopleSearchResult[]>(resultJson);
+            var response = await client.PostAsync(
+                $"{SharePointTenantUrl}/_api/SP.UI.ApplicationPages.ClientPeoplePickerWebServiceInterface.clientPeoplePickerSearchUser",
+                new StringContent(payload, Encoding.UTF8, "application/json")
+            );
+
+            var responseText = await response.Content.ReadAsStringAsync();
+
+            if (responseText == null)
+            {
+                throw new ApplicationException("null response");
+            }
+
+            var odataResponse = JsonSerializer.Deserialize<OdataResponse>(responseText);
+
+            if (odataResponse == null)
+            {
+                throw new ApplicationException("null response");
+            }
+
+            return JsonSerializer.Deserialize<PeopleSearchResult[]>(odataResponse.value);
         }
 
-        private static async Task QueryAndListPeople(ClientContext clientContext, bool isAppOnly, bool useSubstrate, string searchTerm)
+        private static async Task QueryAndListPeople(string token, bool isAppOnly, bool useSubstrate, string searchTerm)
         {
-            var result = await SearchPeople(clientContext, searchTerm, useSubstrate);
+            var result = await SearchPeopleRest(token, searchTerm, useSubstrate);
 
             Console.WriteLine($"App-only: {isAppOnly} | UseSubstrate: {useSubstrate} | Results: {(result is null ? "(null)" : result.Length.ToString())}");
 
@@ -95,18 +108,18 @@ namespace PeoplePickerSearchApp
 
         static async Task Main()
         {
-            var delegatedClient = await GetSharePointClient(false);
-            var appOnlyClient = await GetSharePointClient(true);
+            var delegatedToken = (await GetToken(false)).AccessToken;
+            var appOnlyToken = (await GetToken(true)).AccessToken;
 
             for (; ; )
             {
                 Console.Write("Enter search term: ");
-                var searchTerm = Console.ReadLine();
+                var searchTerm = Console.ReadLine() ?? "";
 
-                await QueryAndListPeople(delegatedClient, false, false, searchTerm);
-                await QueryAndListPeople(delegatedClient, false, true, searchTerm);
-                await QueryAndListPeople(appOnlyClient, true, false, searchTerm);
-                await QueryAndListPeople(appOnlyClient, true, true, searchTerm);
+                await QueryAndListPeople(delegatedToken, false, false, searchTerm);
+                await QueryAndListPeople(delegatedToken, false, true, searchTerm);
+                await QueryAndListPeople(appOnlyToken, true, false, searchTerm);
+                await QueryAndListPeople(appOnlyToken, true, true, searchTerm);
 
                 Console.WriteLine();
             }

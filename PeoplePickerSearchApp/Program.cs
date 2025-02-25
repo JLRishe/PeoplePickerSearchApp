@@ -20,6 +20,19 @@ namespace PeoplePickerSearchApp
 
         const string SharePointTenantUrl = "ENTER_HERE";
 
+        private static readonly (bool, bool) DelegatedNoSubstrate = (false, false);
+        private static readonly (bool, bool) DelegatedUseSubstrate = (false, true);
+        private static readonly (bool, bool) AppOnlyNoSubstrate = (true, false);
+        private static readonly (bool, bool) AppOnlyUseSubstrate = (true, true);
+
+        private static readonly Dictionary<(bool, bool), List<double>> Timings = new()
+        {
+            { DelegatedNoSubstrate, new List<double>()  },
+            { DelegatedUseSubstrate, new List<double>() },
+            { AppOnlyNoSubstrate, new List<double>() },
+            { AppOnlyUseSubstrate, new List<double>() },
+        };
+
         private static async Task<AuthenticationResult> GetToken(bool getAppOnlyToken)
         {
             var authority = "https://login.microsoftonline.com/" + AadTenantId;
@@ -91,11 +104,19 @@ namespace PeoplePickerSearchApp
             return JsonSerializer.Deserialize<PeopleSearchResult[]>(odataResponse.value);
         }
 
-        private static async Task QueryAndListPeople(string token, bool isAppOnly, bool useSubstrate, string searchTerm)
+        private static async Task QueryAndListPeople(string token, (bool, bool) options, string searchTerm)
         {
-            var result = await SearchPeopleRest(token, searchTerm, useSubstrate);
+            var isAppOnly = options.Item1;
+            var useSubstrate = options.Item2;
 
-            Console.WriteLine($"App-only: {isAppOnly} | UseSubstrate: {useSubstrate} | Results: {(result is null ? "(null)" : result.Length.ToString())}");
+            var startTime = DateTime.Now;
+            var result = await SearchPeopleRest(token, searchTerm, useSubstrate);
+            var endTime = DateTime.Now;
+
+            var duration = endTime - startTime;
+            Timings[options].Add(duration.TotalSeconds);
+
+            Console.WriteLine($"App-only: {isAppOnly} | UseSubstrate: {useSubstrate} | Results: {(result is null ? "(null)" : result.Length.ToString())} | Time: {duration.TotalSeconds:0.00} seconds");
 
             if (result != null)
             {
@@ -113,15 +134,29 @@ namespace PeoplePickerSearchApp
 
             for (; ; )
             {
-                Console.Write("Enter search term: ");
+                Console.Write("Enter search term (x to exit): ");
                 var searchTerm = Console.ReadLine() ?? "";
 
-                await QueryAndListPeople(delegatedToken, false, false, searchTerm);
-                await QueryAndListPeople(delegatedToken, false, true, searchTerm);
-                await QueryAndListPeople(appOnlyToken, true, false, searchTerm);
-                await QueryAndListPeople(appOnlyToken, true, true, searchTerm);
+                if (searchTerm == "x")
+                {
+                    break;
+                }
+
+                await QueryAndListPeople(delegatedToken, DelegatedNoSubstrate, searchTerm);
+                await QueryAndListPeople(delegatedToken, DelegatedUseSubstrate, searchTerm);
+                await QueryAndListPeople(appOnlyToken, AppOnlyNoSubstrate, searchTerm);
+                await QueryAndListPeople(appOnlyToken, AppOnlyUseSubstrate, searchTerm);
 
                 Console.WriteLine();
+            }
+
+            foreach (var (options, durations) in Timings)
+            {
+                var total = durations.Sum();
+                var average = total / durations.Count;
+                var (appOnly, useSubstrate) = options;
+
+                Console.WriteLine($"App-only: {appOnly} | UseSubstrate: {useSubstrate} | Average: {average:0.00} seconds");
             }
         }
     }
